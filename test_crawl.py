@@ -9,6 +9,8 @@ class TestCrawl(unittest.TestCase):
         self.assertEqual(normalize_url("https://example.com/path/"), "example.com/path")
     def test_normalize_url_without_slash(self):
         self.assertEqual(normalize_url("http://example.com"), "example.com")
+    def test_normalize_url_with_slashes(self):
+        self.assertEqual(normalize_url("http://example.com/path//"), "example.com/path")
 
 if __name__ == '__main__':
     unittest.main()
