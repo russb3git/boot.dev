@@ -1,3 +1,9 @@
+"""
+This module provides functions to crawl a website starting from a base URL,
+extracting relevant data from each page, and following links to other pages
+within the same domain. The extracted data includes the page heading,
+first paragraph, outgoing links, and image URLs.
+"""
 import sys
 
 from urllib.parse import urlparse, urljoin
@@ -6,7 +12,7 @@ import requests
 from bs4 import BeautifulSoup, Tag
 
 
-def normalize_url(url) -> str:
+def normalize_url(url: str) -> str:
     """
     Normalize a URL by parsing it and reconstructing it in a standard format.
 
@@ -17,13 +23,18 @@ def normalize_url(url) -> str:
     response = urlparse(url)
     netloc = response.netloc.lower()  # domain
     path = response.path.lower().rstrip('/')  # subdomain
-    # scheme = response.scheme.lower() # HTTP or HTTPS
 
     new_url = f'{netloc}{path}'
     return new_url
 
 
 def get_heading_from_html(html: str) -> str:
+    """
+    Extracts the heading from the given HTML content.
+
+    :param html: The HTML content to parse.
+    :return: The text of the first <h1> tag found in the HTML, or an empty string if no <h1> tag is present.
+    """
     soup = BeautifulSoup(html, 'html.parser')
 
     h_tag = soup.find('h1')
@@ -31,6 +42,11 @@ def get_heading_from_html(html: str) -> str:
 
 
 def get_first_paragraph_from_html(html: str) -> str:
+    """
+    Extracts the first paragraph from the given HTML content.
+    :param html: The HTML content to parse.
+    :return: The text of the first <p> tag found in the <main> tag, or if no <main> tag is present, the first <p> tag in the HTML. Returns an empty string if no <p> tag is found.
+    """
     soup = BeautifulSoup(html, 'html.parser')
 
     main_tag = soup.find('main')
@@ -44,7 +60,8 @@ def get_first_paragraph_from_html(html: str) -> str:
 
 def get_urls_from_html(html: str, base_url) -> list[str]:
     """
-    Extracts all URLs from the given HTML content and converts them to absolute URLs based on the provided base URL.
+    Extracts all URLs from the given HTML content and converts them to
+    absolute URLs based on the provided base URL.
     :param html: The HTML content to parse.
     :param base_url: The base URL to resolve relative URLs against.
     :return: A list of absolute URLs extracted from the HTML content.
@@ -66,7 +83,8 @@ def get_urls_from_html(html: str, base_url) -> list[str]:
 
 def get_images_from_html(html: str, base_url) -> list[str]:
     """
-    Extracts all image URLs from the given HTML content and converts them to absolute URLs based on the provided base URL.
+    Extracts all image URLs from the given HTML content and converts them to
+    absolute URLs based on the provided base URL.
 
     :param html: The HTML content to parse.
     :param base_url: The base URL to resolve relative image URLs against.
@@ -118,7 +136,8 @@ def get_html(url):
     """
     Fetches the HTML content of the given URL.
     :param url: The URL to fetch.
-    :return: The HTML content as a string if the request is successful, otherwise None.
+    :return: The HTML content as a string if the request is successful,
+    otherwise None.
     """
 
     response = requests.get(url, headers={"User-Agent": "BootCrawler/1.0"})
@@ -135,7 +154,8 @@ def get_html(url):
     return response.text
 
 
-def crawl_page(base_url, current_url=None, page_data=None):
+def crawl_page(base_url: str, current_url: str | None = None,
+               page_data: dict | None = None) -> dict | None:
     """
     Crawls a web page starting from the base URL, extracting relevant data and
     following links to other pages.
@@ -145,7 +165,8 @@ def crawl_page(base_url, current_url=None, page_data=None):
     :param page_data: Stores all the rich data we've extracted from each
         page, keyed by normalized URL. This function should continue to pass the
         same dictionary to itself.
-    :return:
+    :return: A dictionary containing the extracted data from all crawled pages,
+        keyed by normalized URL.
     """
 
     current_url = base_url if current_url is None else urljoin(base_url,
@@ -164,7 +185,8 @@ def crawl_page(base_url, current_url=None, page_data=None):
     if normalized_url in page_data.keys():
         return None
 
-    # print(f'This is the base_url argument passed into get_html({current_url})')
+    # print(f'This is the base_url argument passed into get_html({
+    # current_url})')
     html = get_html(current_url)
     # print(f'This is html: {html}')
 
@@ -182,30 +204,13 @@ def crawl_page(base_url, current_url=None, page_data=None):
 
     return page_data
 
-    '''
-    pseudocode:
-    In the first call to crawl_page() current_url is a copy of base_url, but as 
-        we make further HTTP requests to all the URLs we find on the base_url, 
-        the current_url value will change while the base stays the same.
-    
-    Make sure the current_url is on the same domain as the base_url. 
-        If it's not, just return. We don't want to crawl the entire internet, 
-        just the domain in question.
-    Get a normalized version of the current_url.
-    Check if we've already crawled this page by checking if the normalized URL 
-        is already a key in the page_data dictionary. If we have, just return - 
-        we don't want to crawl the same page twice.
-    Get the HTML from the current URL, and add a print statement so you can 
-        watch your crawler in real-time.
-    Assuming all went well with the request, use extract_page_data() to get the 
-        rich data from this page and add it to the page_data dictionary using 
-        the normalized URL as the key.
-    Get all the URLs from the response body HTML
-    Recursively crawl each URL on the page
-    '''
-
 
 def main():
+    """
+    The main function of the web crawler. It checks for command-line arguments,
+    initiates the crawling process, and prints the results.
+    :return: None
+    """
     if len(sys.argv) < 2:
         print('no website provided')
         sys.exit(1)
@@ -214,16 +219,17 @@ def main():
         print('too many arguments provided')
         sys.exit(1)
 
-    script_name = sys.argv[0]
     base_url = sys.argv[1]
 
     print(f'starting crawl of: {base_url}')
     data = crawl_page(base_url)
-    # print(f'***** This is the crawled data from main(): {crawl_page(base_url)}')
+    # print(f'***** This is the crawled data from main(): {crawl_page(
+    # base_url)}')
 
-    print(f'The number of pages crawled: {len(data)}')
-    for k, v in data.items():
-        print(f'{k}: {v['url']}')
+    if data:
+        print(f'The number of pages crawled: {len(data)}')
+        for k, v in data.items():
+            print(f'{k}: {v['url']}')
 
 
 if __name__ == "__main__":
