@@ -4,12 +4,173 @@ extracting relevant data from each page, and following links to other pages
 within the same domain. The extracted data includes the page heading,
 first paragraph, outgoing links, and image URLs.
 """
+import asyncio
 import sys
-
+import json
 from urllib.parse import urlparse, urljoin
 
-import requests
+import aiohttp
 from bs4 import BeautifulSoup, Tag
+
+
+class AsyncCrawler:
+    """
+    A class to crawl a website asynchronously, starting from a base URL,
+    extracting relevant data from each page, and following links to other
+    pages within the same domain.
+    """
+
+    def __init__(self, base_url: str, max_concurrency: int, max_pages: int):
+        """
+        Initializes the AsyncCrawler with a base URL.
+
+        Args:
+            base_url (str): The root URL of the website to crawl.
+            max_concurrency (int): The maximum number of concurrent
+            max_pages (int): The maximum number of pages to crawl.
+        """
+        self.base_url = base_url
+        self.base_domain = urlparse(base_url).netloc
+        self.page_data = {}
+        self.lock = asyncio.Lock()
+        self.max_concurrency = max_concurrency
+        self.semaphore = asyncio.Semaphore(self.max_concurrency)
+        self.session = None
+        self.max_pages = max_pages
+        self.should_stop = False
+        self.all_tasks = set()
+
+    async def __aenter__(self):
+        self.session = aiohttp.ClientSession()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.session.close()
+
+    async def add_page_visit(self, normalized_url):
+        """
+        Adds a page visit to the page_data dictionary if the normalized URL
+        is not already present.
+
+        :param normalized_url: The normalized URL of the page to add.
+        :return: True if the page was added, False if it was already present.
+        """
+
+        async with self.lock:
+
+            if self.should_stop:
+                return False
+
+            real_page_count = sum(
+                    1 for v in self.page_data.values() if isinstance(v, dict))
+            if real_page_count >= self.max_pages:
+                self.should_stop = True
+                print('Reached maximum number of pages to crawl')
+                for task in self.all_tasks:
+                    task.cancel()
+                return False
+
+            if normalized_url in self.page_data.keys():
+                return False
+            else:
+                self.page_data[normalized_url] = True
+                return True
+
+    async def get_html(self, url):
+        """
+        Fetches the HTML content of the given URL.
+        :param url: The URL to fetch.
+        :return: The HTML content as a string if the request is successful,
+        otherwise None.
+        """
+
+        async with self.session.get(url) as response:
+            if response.status >= 400:
+                print(f'Error level code {response.status}')
+                return None
+
+            content_type = response.headers.get('content-type', '')
+            if 'text/html' not in content_type.lower():
+                print(f'Header not text/html:'
+                      f' {response.headers.get("content-type")}')
+                return None
+
+            if response.status != 200:
+                print(f'Error level code {response.status}')
+                return None
+
+            return await response.text()
+
+    async def crawl_page(self, current_url: str | None = None) -> dict | None:
+        """
+        Crawls a web page starting from the base URL, extracting relevant
+        data and
+        following links to other pages.
+
+        :param current_url: The current URL being crawled.
+        :return: A dictionary containing the extracted data from all crawled
+            pages, keyed by normalized URL.
+        """
+
+        if self.should_stop:
+            return None
+
+        task = asyncio.current_task()
+        self.all_tasks.add(task)
+
+        try:
+            current_url = self.base_url if current_url is None else urljoin(
+                    self.base_url, current_url)
+
+            if urlparse(current_url).netloc != urlparse(self.base_url).netloc:
+                return None
+
+            normalized_url = normalize_url(current_url)
+
+            if not await self.add_page_visit(normalized_url):
+                return None
+
+            tasks = []
+
+            async with self.semaphore:
+                html = await self.get_html(current_url)
+
+                extracted_page_data = extract_page_data(html, normalized_url)
+
+                async with self.lock:
+                    self.page_data[normalized_url] = extracted_page_data
+
+                response = get_urls_from_html(html, normalized_url)
+
+            for resp in response:
+                new_task = asyncio.create_task(self.crawl_page(resp))
+                tasks.append(new_task)
+                self.all_tasks.add(new_task)
+            try:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            finally:
+                for t in tasks:
+                    self.all_tasks.discard(t)
+
+        finally:
+            self.all_tasks.discard(task)
+
+        return self.page_data
+
+    async def crawl(self) -> dict:
+        """
+        Starts the crawling process from the base URL and returns the extracted
+        data from the base URL pages.
+        
+        :return: A dictionary containing the extracted data from all crawled
+        pages, keyed by normalized URL.
+        """
+
+        try:
+            await self.crawl_page(self.base_url)
+        except asyncio.CancelledError:
+            print('Crawling was cancelled.')
+        return self.page_data
 
 
 def normalize_url(url: str) -> str:
@@ -33,7 +194,8 @@ def get_heading_from_html(html: str) -> str:
     Extracts the heading from the given HTML content.
 
     :param html: The HTML content to parse.
-    :return: The text of the first <h1> tag found in the HTML, or an empty string if no <h1> tag is present.
+    :return: The text of the first <h1> tag found in the HTML, or an empty
+    string if no <h1> tag is present.
     """
     soup = BeautifulSoup(html, 'html.parser')
 
@@ -45,7 +207,9 @@ def get_first_paragraph_from_html(html: str) -> str:
     """
     Extracts the first paragraph from the given HTML content.
     :param html: The HTML content to parse.
-    :return: The text of the first <p> tag found in the <main> tag, or if no <main> tag is present, the first <p> tag in the HTML. Returns an empty string if no <p> tag is found.
+    :return: The text of the first <p> tag found in the <main> tag, or if no
+    <main> tag is present, the first <p> tag in the HTML. Returns an empty
+    string if no <p> tag is found.
     """
     soup = BeautifulSoup(html, 'html.parser')
 
@@ -132,105 +296,62 @@ def extract_page_data(html: str, page_url: str):
             }
 
 
-def get_html(url):
+async def crawl_site_async(base_url: str, max_concurrency: int,
+                           max_pages: int) -> dict:
+
+    async with AsyncCrawler(base_url, max_concurrency, max_pages) as crawler:
+        data = await crawler.crawl()
+
+        return data
+
+
+def write_json_report(page_data, filename=r"./report.json"):
     """
-    Fetches the HTML content of the given URL.
-    :param url: The URL to fetch.
-    :return: The HTML content as a string if the request is successful,
-    otherwise None.
-    """
-
-    response = requests.get(url, headers={"User-Agent": "BootCrawler/1.0"})
-    if response.status_code >= 400:
-        raise Exception(f'Error level code {response.status_code}')
-
-    if not response.headers.get('content-type').startswith("text/html"):
-        raise Exception(f'Header not text/html:'
-                        f' {response.headers.get("content-type")}')
-
-    if response.status_code != 200:
-        raise Exception(f'Error level code {response.status_code}')
-
-    return response.text
-
-
-def crawl_page(base_url: str, current_url: str | None = None,
-               page_data: dict | None = None) -> dict | None:
-    """
-    Crawls a web page starting from the base URL, extracting relevant data and
-    following links to other pages.
-
-    :param base_url: The root URL of the website we're crawling.
-    :param current_url: The current URL being crawled.
-    :param page_data: Stores all the rich data we've extracted from each
-        page, keyed by normalized URL. This function should continue to pass the
-        same dictionary to itself.
-    :return: A dictionary containing the extracted data from all crawled pages,
-        keyed by normalized URL.
+    Writes the given page data to a JSON file.
+    
+    :param page_data: A dictionary containing the keys with keys: url, heading,
+        first_paragraph, outgoing_links, image_urls. 
+    :param filename: The name of the file to write to. 
+    :return: None
     """
 
-    current_url = base_url if current_url is None else urljoin(base_url,
-                                                               current_url)
-    # print(f'This is current_url: {current_url}')
+    real_page_data = dict(
+            (k, v) for k, v in page_data.items() if isinstance(v, dict))
 
-    page_data = {} if page_data is None else page_data
-    # print(f'This is page_data: {page_data}')
+    sorted_data = sorted(real_page_data.values(), key=lambda p: p["url"])
 
-    if urlparse(current_url).netloc != urlparse(base_url).netloc:
-        return None
-
-    normalized_url = normalize_url(current_url)
-    # print(f'This is normalized_url: {normalized_url}')
-
-    if normalized_url in page_data.keys():
-        return None
-
-    # print(f'This is the base_url argument passed into get_html({
-    # current_url})')
-    html = get_html(current_url)
-    # print(f'This is html: {html}')
-
-    extracted_page_data = extract_page_data(html, normalized_url)
-    # print(f'This is extracted page: {extracted_page_data}')
-
-    page_data[normalized_url] = extracted_page_data
-
-    response = get_urls_from_html(html, normalized_url)
-    # print(f'This is response: {response}')
-
-    for resp in response:
-        # print(f'This is resp: {resp}')
-        crawl_page(base_url, resp, page_data)
-
-    return page_data
+    with open(filename, 'w', encoding='utf-8') as f:
+        json.dump(sorted_data, f, indent=2)
 
 
-def main():
+async def main():
     """
     The main function of the web crawler. It checks for command-line arguments,
     initiates the crawling process, and prints the results.
     :return: None
     """
-    if len(sys.argv) < 2:
-        print('no website provided')
+
+    if len(sys.argv) < 4:
+        print('too few arguments provided')
         sys.exit(1)
 
-    if len(sys.argv) > 2:
+    if len(sys.argv) > 4:
         print('too many arguments provided')
         sys.exit(1)
 
     base_url = sys.argv[1]
+    max_concurrency = int(sys.argv[2])
+    max_pages = int(sys.argv[3])
 
-    print(f'starting crawl of: {base_url}')
-    data = crawl_page(base_url)
+    print(f'starting crawl of: {base_url} with max concurrency: '
+          f'{max_concurrency} max pages: {max_pages}')
+
+    page_data = await crawl_site_async(base_url, max_concurrency, max_pages)
     # print(f'***** This is the crawled data from main(): {crawl_page(
     # base_url)}')
 
-    if data:
-        print(f'The number of pages crawled: {len(data)}')
-        for k, v in data.items():
-            print(f'{k}: {v['url']}')
+    write_json_report(page_data)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
