@@ -1,5 +1,5 @@
 import unittest
-from main import get_urls_from_html, get_first_paragraph_from_html, \
+from web_scraper import get_urls_from_html, get_first_paragraph_from_html, \
     get_heading_from_html, get_images_from_html, normalize_url, \
     extract_page_data
 
@@ -58,7 +58,9 @@ class TestCrawl(unittest.TestCase):
 
     def test_get_urls_from_html(self):
         self.assertEqual(get_urls_from_html(
-                '<html><body><a href="https://crawler-test.com"><span>Boot.dev</span></a></body></html>',
+                '<html><body><a '
+                'href="https://crawler-test.com"><span>Boot.dev</span></a'
+                '></body></html>',
                 "https://crawler-test.com"), ["https://crawler-test.com"])
 
     def test_get_urls_from_html_with_blank_url(self):
@@ -68,21 +70,25 @@ class TestCrawl(unittest.TestCase):
 
     def test_get_urls_from_html_absolute_and_relative_url(self):
         input_url = "https://crawler-test.com"
-        input_body = '<html><body><a href="https://example.com">Example</a><a href="/about">About</a></body></html>'
+        input_body = ('<html><body><a href="https://example.com">Example</a><a '
+                      'href="/about">About</a></body></html>')
         actual = get_urls_from_html(input_body, input_url)
         expected = ["https://example.com", "https://crawler-test.com/about"]
         self.assertEqual(actual, expected)
 
     def test_get_images_from_html_relative(self):
         input_url = "https://crawler-test.com"
-        input_body = '<html><body><img src="/logo.png" alt="Logo"></body></html>'
+        input_body = ('<html><body><img src="/logo.png" '
+                      'alt="Logo"></body></html>')
         actual = get_images_from_html(input_body, input_url)
         expected = ["https://crawler-test.com/logo.png"]
         self.assertEqual(actual, expected)
 
     def test_get_images_from_html_absolute_and_relative_url(self):
         input_url = "https://crawler-test.com"
-        input_body = '<html><body><img src="https://example.com/image.jpg" alt="Example Image"><img src="/logo.png" alt="Logo"></body></html>'
+        input_body = ('<html><body><img src="https://example.com/image.jpg" '
+                      'alt="Example Image"><img src="/logo.png" '
+                      'alt="Logo"></body></html>')
         actual = get_images_from_html(input_body, input_url)
         expected = ["https://example.com/image.jpg",
                     "https://crawler-test.com/logo.png"]
