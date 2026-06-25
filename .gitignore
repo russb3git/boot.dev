@@ -240,7 +240,10 @@ __marimo__/
 # Python-generated files
 *.py[oc]
 *.egg-info
+<<<<<<< HEAD
 AGENTS.md
 .python-version
 uv.lock
 report.json
+=======
+>>>>>>> 66343cf (Resolve .gitignore merge conflict)
