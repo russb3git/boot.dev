@@ -241,3 +241,6 @@ __marimo__/
 *.py[oc]
 *.egg-info
 AGENTS.md
+.python-version
+uv.lock
+report.json
